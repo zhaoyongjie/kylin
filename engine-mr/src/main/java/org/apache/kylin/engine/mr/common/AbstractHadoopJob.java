@@ -112,6 +112,9 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
             .withArgName(BatchConstants.ARG_STATS_SAMPLING_PERCENT).hasArg().isRequired(false)
             .withDescription("Statistics sampling percentage").create(BatchConstants.ARG_STATS_SAMPLING_PERCENT);
 
+    protected static final Option OPTION_DICT_PATH = OptionBuilder.withArgName(BatchConstants.ARG_DICT_PATH).
+            hasArg().isRequired(false).withDescription("Dict path").create(BatchConstants.ARG_DICT_PATH);
+
     private static final String MAP_REDUCE_CLASSPATH = "mapreduce.application.classpath";
 
     protected static void runJob(Tool job, String[] args) {

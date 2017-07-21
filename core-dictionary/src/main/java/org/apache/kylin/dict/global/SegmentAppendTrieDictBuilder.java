@@ -38,7 +38,7 @@ public class SegmentAppendTrieDictBuilder implements IDictionaryBuilder {
     private String sourceColumn;
 
     @Override
-    public void init(DictionaryInfo dictInfo, int baseId) throws IOException {
+    public void init(DictionaryInfo dictInfo, int baseId, String hdfsDir) throws IOException {
         sourceColumn = dictInfo.getSourceTable() + "." + dictInfo.getSourceColumn();
 
         int maxEntriesPerSlice = KylinConfig.getInstanceFromEnv().getAppendDictEntrySize();
@@ -48,7 +48,7 @@ public class SegmentAppendTrieDictBuilder implements IDictionaryBuilder {
         }
         //use UUID to make each segment dict in different HDFS dir and support concurrent build
         //use timestamp to make the segment dict easily to delete
-        String baseDir = KylinConfig.getInstanceFromEnv().getHdfsWorkingDirectory() + "resources/SegmentDict" + dictInfo.getResourceDir() + "/" + UUID.randomUUID().toString() + "_" + System.currentTimeMillis()+ "/";
+        String baseDir = hdfsDir + "resources/SegmentDict" + dictInfo.getResourceDir() + "/" + UUID.randomUUID().toString() + "_" + System.currentTimeMillis()+ "/";
 
         this.builder = new AppendTrieDictionaryBuilder(baseDir, maxEntriesPerSlice, false);
         this.baseId = baseId;
