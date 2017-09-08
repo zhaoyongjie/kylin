@@ -51,7 +51,7 @@ public class SortedColumnReaderTest {
         ArrayList<String> correctAnswer = readAllFiles(dirPath);
         Collections.sort(correctAnswer, new ByteComparator<String>(new StringBytesConverter()));
         SortedColumnDFSFile column = new SortedColumnDFSFile(qualify(dirPath + "/"), DataType.getType("varchar"));
-        IDictionaryValueEnumerator e = new TableColumnValueEnumerator(column.getReader(), -1);
+        IDictionaryValueEnumerator<String> e = new TableColumnValueEnumerator(column.getReader(), -1);
         ArrayList<String> output = new ArrayList<>();
         while (e.moveNext()) {
             output.add(new String(e.current()));
@@ -124,7 +124,7 @@ public class SortedColumnReaderTest {
             }
         });
         SortedColumnDFSFile column = new SortedColumnDFSFile(qualify(dirPath + "/"), DataType.getType("long"));
-        IDictionaryValueEnumerator e = new TableColumnValueEnumerator(column.getReader(), -1);
+        IDictionaryValueEnumerator<String> e = new TableColumnValueEnumerator(column.getReader(), -1);
         ArrayList<String> output = new ArrayList<>();
         while (e.moveNext()) {
             output.add(new String(e.current()));
@@ -141,7 +141,7 @@ public class SortedColumnReaderTest {
         String dirPath = "src/test/resources/empty_dir";
         new File(dirPath).mkdirs();
         SortedColumnDFSFile column = new SortedColumnDFSFile(qualify(dirPath + "/"), DataType.getType("varchar"));
-        IDictionaryValueEnumerator e = new TableColumnValueEnumerator(column.getReader(), -1);
+        IDictionaryValueEnumerator<String> e = new TableColumnValueEnumerator(column.getReader(), -1);
         ArrayList<String> output = new ArrayList<>();
         while (e.moveNext()) {
             System.out.println(new String(e.current()));
@@ -158,7 +158,7 @@ public class SortedColumnReaderTest {
         Collections.sort(correctAnswer, new ByteComparator<String>(new StringBytesConverter()));
         System.out.println("correct answer:" + correctAnswer);
         SortedColumnDFSFile column = new SortedColumnDFSFile(qualify(dirPath + "/"), DataType.getType("varchar"));
-        IDictionaryValueEnumerator e = new TableColumnValueEnumerator(column.getReader(), -1);
+        IDictionaryValueEnumerator<String> e = new TableColumnValueEnumerator(column.getReader(), -1);
         ArrayList<String> output = new ArrayList<>();
         while (e.moveNext()) {
             output.add(new String(e.current()));
@@ -229,7 +229,7 @@ public class SortedColumnReaderTest {
             }
         });
         SortedColumnDFSFile column = new SortedColumnDFSFile(qualify(dirPath + "/"), DataType.getType("double"));
-        IDictionaryValueEnumerator e = new TableColumnValueEnumerator(column.getReader(), -1);
+        IDictionaryValueEnumerator<String> e = new TableColumnValueEnumerator(column.getReader(), -1);
         ArrayList<String> output = new ArrayList<>();
         while (e.moveNext()) {
             output.add(new String(e.current()));

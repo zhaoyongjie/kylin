@@ -23,9 +23,9 @@ import java.io.IOException;
 /**
  * Created by dongli on 10/28/15.
  */
-public interface IDictionaryValueEnumerator {
+public interface IDictionaryValueEnumerator<E> {
     
-    String current() throws IOException;
+    E current() throws IOException;
 
     boolean moveNext() throws IOException;
 

@@ -23,6 +23,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.NavigableSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -303,7 +304,7 @@ public class DictionaryManager {
 
     private Dictionary<String> buildDictFromReadableTable(IReadableTable inpTable, DictionaryInfo dictInfo, String builderClass, TblColRef col) throws IOException {
         Dictionary<String> dictionary;
-        IDictionaryValueEnumerator columnValueEnumerator = null;
+        IDictionaryValueEnumerator<String> columnValueEnumerator = null;
         try {
             columnValueEnumerator = new TableColumnValueEnumerator(inpTable.getReader(), dictInfo.getSourceColumnIndex());
             if (builderClass == null) {
@@ -319,6 +320,77 @@ public class DictionaryManager {
                 columnValueEnumerator.close();
         }
         return dictionary;
+    }
+
+    public List<DictionaryInfo> buildDictionaryList(DataModelDesc model, List<TblColRef> colList,
+            IReadableTable inpTable, List<String> builderClassList) throws IOException {
+        if (inpTable.exists() == false)
+            return null;
+
+        logger.info("Batch building dictionaries for " + colList);
+
+        List<DictionaryInfo> resultList = Lists.newArrayListWithExpectedSize(colList.size());
+        List<DictionaryInfo> newDictList = Lists.newLinkedList();
+        List<IDictionaryBuilder> newDictBuilderList = Lists.newLinkedList();
+        List<Integer> newBuildIndex = Lists.newArrayList();
+
+        for (int i = 0; i < colList.size(); i++) {
+            DictionaryInfo dictInfo = createDictionaryInfo(model, colList.get(i), inpTable);
+
+            String dupInfo = checkDupByInfo(dictInfo);
+            if (dupInfo != null) {
+                logger.info("Identical dictionary input " + dictInfo.getInput() + ", reuse existing dictionary at "
+                        + dupInfo);
+                resultList.add(getDictionaryInfo(dupInfo));
+            } else {
+                String builderClass = builderClassList.get(i);
+                if (builderClass == null) {
+                    newDictBuilderList
+                            .add(DictionaryGenerator.newDictionaryBuilder(DataType.getType(dictInfo.getDataType())));
+                } else {
+                    newDictBuilderList.add((IDictionaryBuilder) ClassUtil.newInstance(builderClass));
+                }
+                resultList.add(dictInfo);
+                newDictList.add(dictInfo);
+                newBuildIndex.add(i);
+            }
+        }
+
+        if (newDictList.isEmpty()) {
+            logger.info("all of the columns will reuse existing dictionaries and no need to read table " + inpTable);
+            return resultList;
+        }
+
+        // currently all data types are casted to string to build dictionary
+        // String dataType = info.getDataType();
+        int[] colIndexArray = new int[newDictList.size()];
+        List<DataType> dataTypeList = Lists.newArrayList();
+        for (int i = 0; i < newDictList.size(); i++) {
+            DictionaryInfo info = newDictList.get(i);
+            colIndexArray[i] = info.getSourceColumnIndex();
+            dataTypeList.add(DataType.getType(info.getDataType()));
+        }
+
+        IDictionaryValueEnumerator<Map<Integer, String>> multipleColumnValueEnumerator = null;
+        try {
+            multipleColumnValueEnumerator = new TableMultipleColumnValueEnumerator(inpTable.getReader(), colIndexArray);
+            List<Dictionary<String>> dictionaryList = DictionaryGenerator.buildDictionaryList(newDictBuilderList,
+                    newDictList, colIndexArray, multipleColumnValueEnumerator);
+            for (int i = 0; i < newDictList.size(); i++) {
+                DictionaryInfo savedDictInfo = trySaveNewDict(dictionaryList.get(i), newDictList.get(i));
+                resultList.set(newBuildIndex.get(i), savedDictInfo);
+            }
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed to create dictionaries on " + colList, ex);
+        } finally {
+            if (multipleColumnValueEnumerator != null)
+                multipleColumnValueEnumerator.close();
+        }
+
+        if (resultList.size() != colList.size()) {
+            throw new IllegalStateException("Illegal result size in buildDictionaryList.");
+        }
+        return resultList;
     }
 
     public DictionaryInfo saveDictionary(DataModelDesc model, TblColRef col, IReadableTable inpTable, Dictionary<String> dictionary) throws IOException {

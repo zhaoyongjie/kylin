@@ -21,6 +21,7 @@ package org.apache.kylin.dict;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.kylin.common.KylinConfig;
@@ -31,6 +32,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 /**
  * @author yangli9
@@ -60,11 +63,13 @@ public class DictionaryGenerator {
         return builder;
     }
 
-    public static Dictionary<String> buildDictionary(DataType dataType, IDictionaryValueEnumerator valueEnumerator) throws IOException {
+    public static Dictionary<String> buildDictionary(DataType dataType,
+            IDictionaryValueEnumerator<String> valueEnumerator) throws IOException {
         return buildDictionary(newDictionaryBuilder(dataType), null, valueEnumerator);
     }
 
-    static Dictionary<String> buildDictionary(IDictionaryBuilder builder, DictionaryInfo dictInfo, IDictionaryValueEnumerator valueEnumerator) throws IOException {
+    static Dictionary<String> buildDictionary(IDictionaryBuilder builder, DictionaryInfo dictInfo,
+            IDictionaryValueEnumerator<String> valueEnumerator) throws IOException {
         int baseId = 0; // always 0 for now
         int nSamples = 5;
         ArrayList<String> samples = new ArrayList<String>(nSamples);
@@ -98,6 +103,84 @@ public class DictionaryGenerator {
         logger.debug("Dictionary builder class: " + builder.getClass().getName());
         logger.debug("Dictionary class: " + dict.getClass().getName());
         return dict;
+    }
+
+    /**
+     * Build multiple dictionaries from the same Lookup table
+     * @throws IOException
+     */
+    public static List<Dictionary<String>> buildDictionaryList(List<IDictionaryBuilder> builderList,
+            List<DictionaryInfo> dictInfoList, int[] colIndexArray,
+            IDictionaryValueEnumerator<Map<Integer, String>> valueEnumerator) throws IOException {
+        if (builderList.size() != dictInfoList.size()) {
+            throw new IllegalArgumentException(
+                    "the builderList size does not match with the dictInfoList size, builderList: " + builderList.size()
+                            + ", dictInfoList: " + dictInfoList.size());
+        }
+        if (builderList.size() != colIndexArray.length) {
+            throw new IllegalArgumentException(
+                    "the builderList size does not match with the colIndexArray length, builderList: "
+                            + builderList.size() + ", colIndexArray: " + colIndexArray.length);
+        }
+
+        int baseId = 0; // always 0 for now
+        int nSamples = 5;
+        Map<Integer, List<String>> samplesMap = Maps.newHashMapWithExpectedSize(builderList.size());
+
+        // init the builder map
+        Map<Integer, IDictionaryBuilder> builderMap = Maps.newHashMap();
+        for (int i = 0; i < colIndexArray.length; i++) {
+            int colIdx = colIndexArray[i];
+            IDictionaryBuilder builder = builderList.get(i);
+            builder.init(dictInfoList.get(i), baseId);
+            builderMap.put(colIdx, builder);
+            samplesMap.put(colIdx, Lists.<String> newArrayListWithExpectedSize(nSamples));
+        }
+
+        // add values
+        while (valueEnumerator.moveNext()) {
+            Map<Integer, String> valuesMap = valueEnumerator.current();
+            if (valuesMap == null) {
+                continue;
+            }
+            //Iterate the value map and get the value for each col
+            for (Map.Entry<Integer, String> entry : valuesMap.entrySet()) {
+                int colIdx = entry.getKey();
+                String value = entry.getValue();
+                if (value == null) {
+                    continue;
+                }
+                builderMap.get(colIdx).addValue(value);
+
+                List<String> samples = samplesMap.get(colIdx);
+                if (samples.size() < nSamples && samples.contains(value) == false) {
+                    samples.add(value);
+                }
+            }
+        }
+
+        List<Dictionary<String>> dictList = Lists.newArrayListWithExpectedSize(builderList.size());
+        for (int colIndex : colIndexArray) {
+            // build
+            IDictionaryBuilder builder = builderMap.get(colIndex);
+            Dictionary<String> dict = builder.build();
+            dictList.add(dict);
+
+            // log a few samples
+            List<String> samples = samplesMap.get(colIndex);
+            StringBuilder buf = new StringBuilder();
+            for (String s : samples) {
+                if (buf.length() > 0) {
+                    buf.append(", ");
+                }
+                buf.append(s.toString()).append("=>").append(dict.getIdFromValue(s));
+            }
+            logger.debug("Dictionary value samples: " + buf.toString());
+            logger.debug("Dictionary cardinality: " + dict.getSize());
+            logger.debug("Dictionary builder class: " + builder.getClass().getName());
+            logger.debug("Dictionary class: " + dict.getClass().getName());
+        }
+        return dictList;
     }
 
     public static Dictionary mergeDictionaries(DataType dataType, List<DictionaryInfo> sourceDicts) throws IOException {

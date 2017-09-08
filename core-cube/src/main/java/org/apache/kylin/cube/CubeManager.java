@@ -236,6 +236,29 @@ public class CubeManager implements IRealizationProvider {
         return dictInfo;
     }
 
+    /**
+     * This method is used to build multiple dictionaries from the same lookup table
+     *
+     * @param cubeSeg
+     * @param colList : pair of column from row key & source column. When storing the dictionary, the column should be from row key rather than source column
+     * @return
+     * @throws IOException
+     */
+    public List<DictionaryInfo> buildDictionaryList(CubeSegment cubeSeg, List<TblColRef> colList,
+            IReadableTable inpTable) throws IOException {
+        CubeDesc cubeDesc = cubeSeg.getCubeDesc();
+
+        List<String> builderClassList = Lists.newArrayListWithExpectedSize(colList.size());
+        for (TblColRef col : colList) {
+            builderClassList.add(cubeDesc.getDictionaryBuilderClass(col));
+        }
+        List<DictionaryInfo> dictInfoList = getDictionaryManager().buildDictionaryList(cubeDesc.getModel(), colList,
+                inpTable, builderClassList);
+
+        saveDictionaryInfoList(cubeSeg, colList, dictInfoList);
+        return dictInfoList;
+    }
+
     public DictionaryInfo saveDictionary(CubeSegment cubeSeg, TblColRef col, IReadableTable inpTable,
             Dictionary<String> dict) throws IOException {
         CubeDesc cubeDesc = cubeSeg.getCubeDesc();
@@ -257,6 +280,22 @@ public class CubeManager implements IRealizationProvider {
             CubeUpdate update = new CubeUpdate(cubeSeg.getCubeInstance());
             update.setToUpdateSegs(cubeSeg);
             updateCube(update);
+        }
+    }
+
+    private void saveDictionaryInfoList(CubeSegment cubeSeg, List<TblColRef> colList, List<DictionaryInfo> dictInfoList)
+            throws IOException {
+        if (dictInfoList != null && !dictInfoList.isEmpty()) {
+            for (int i = 0; i < dictInfoList.size(); i++) {
+                DictionaryInfo dictInfo = dictInfoList.get(i);
+                TblColRef col = colList.get(i);
+                Dictionary<?> dict = dictInfo.getDictionaryObject();
+                cubeSeg.putDictResPath(col, dictInfo.getResourcePath());
+                cubeSeg.getRowkeyStats().add(new Object[] { col.getName(), dict.getSize(), dict.getSizeOfId() });
+            }
+            CubeUpdate cubeBuilder = new CubeUpdate(cubeSeg.getCubeInstance());
+            cubeBuilder.setToUpdateSegs(cubeSeg);
+            updateCube(cubeBuilder);
         }
     }
 

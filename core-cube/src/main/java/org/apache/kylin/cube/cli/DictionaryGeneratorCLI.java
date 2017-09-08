@@ -19,10 +19,11 @@
 package org.apache.kylin.cube.cli;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.kylin.common.KylinConfig;
-import org.apache.kylin.common.util.Dictionary;
 import org.apache.kylin.cube.CubeInstance;
 import org.apache.kylin.cube.CubeManager;
 import org.apache.kylin.cube.CubeSegment;
@@ -31,7 +32,6 @@ import org.apache.kylin.dict.DictionaryManager;
 import org.apache.kylin.dict.DictionaryProvider;
 import org.apache.kylin.dict.DistinctColumnValuesProvider;
 import org.apache.kylin.metadata.MetadataManager;
-import org.apache.kylin.metadata.model.DataModelDesc;
 import org.apache.kylin.metadata.model.JoinDesc;
 import org.apache.kylin.metadata.model.TableDesc;
 import org.apache.kylin.metadata.model.TableRef;
@@ -41,6 +41,8 @@ import org.apache.kylin.source.SourceFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 public class DictionaryGeneratorCLI {
@@ -56,24 +58,55 @@ public class DictionaryGeneratorCLI {
 
     private static void processSegment(KylinConfig config, CubeSegment cubeSeg, DistinctColumnValuesProvider factTableValueProvider, DictionaryProvider dictProvider) throws IOException {
         CubeManager cubeMgr = CubeManager.getInstance(config);
+        DictionaryManager dictMgr = DictionaryManager.getInstance(config);
+        MetadataManager metadataManager = MetadataManager.getInstance(config);
+
+        Map<String, List<TblColRef>> lookUpTableColumnsMap = Maps.newHashMap();
+        Map<String, IReadableTable> lookUpTableMap = Maps.newHashMap();
 
         // dictionary
         for (TblColRef col : cubeSeg.getCubeDesc().getAllColumnsNeedDictionaryBuilt()) {
-            logger.info("Building dictionary for " + col);
-            IReadableTable inpTable = decideInputTable(cubeSeg.getModel(), col, factTableValueProvider);
-            if (dictProvider != null) {
-                Dictionary<String> dict = dictProvider.getDictionary(col);
-                if (dict != null) {
-                    logger.debug("Dict for '" + col.getName() + "' has already been built, save it");
-                    cubeMgr.saveDictionary(cubeSeg, col, inpTable, dict);
-                } else {
-                    logger.debug("Dict for '" + col.getName() + "' not pre-built, build it from " + inpTable.toString());
-                    cubeMgr.buildDictionary(cubeSeg, col, inpTable);
-                }
+            // decide input table
+            TblColRef srcCol = dictMgr.decideSourceData(cubeSeg.getModel(), col);
+            String srcTable = srcCol.getTable();
+            IReadableTable inpTable;
+            if (cubeSeg.getModel().isFactTable(srcTable)) {
+                inpTable = factTableValueProvider.getDistinctValuesFor(srcCol);
             } else {
-                logger.debug("Dict for '" + col.getName() + "' not pre-built, build it from " + inpTable.toString());
-                cubeMgr.buildDictionary(cubeSeg, col, inpTable);
+                inpTable = lookUpTableMap.get(srcTable);
+                if (inpTable == null) {
+                    TableDesc tableDesc = new TableDesc(metadataManager.getTableDesc(srcTable));
+                    inpTable = SourceFactory.createReadableTable(tableDesc);
+                    lookUpTableMap.put(srcTable, inpTable);
+                }
             }
+
+            // # save built dictionaries
+            if (dictProvider != null && dictProvider.getDictionary(col) != null) {
+                logger.debug("Dict for '" + col.getName() + "' has already been built, save it");
+                cubeMgr.saveDictionary(cubeSeg, col, inpTable, dictProvider.getDictionary(col));
+            } else {
+                // # or build dictionaries for fact table columns
+                if (cubeSeg.getModel().isFactTable(srcTable)) {
+                    logger.debug("Dict for fact table column '" + col.getName() + "' not pre-built, build it from "
+                            + inpTable.toString());
+                    cubeMgr.buildDictionary(cubeSeg, col, inpTable);
+                } else {
+                    // # or put columns from lookup table to lookUpTableColumnsMap
+                    List<TblColRef> lookUpDims = lookUpTableColumnsMap.get(srcTable);
+                    if (lookUpDims == null) {
+                        lookUpDims = Lists.newArrayList();
+                        lookUpTableColumnsMap.put(srcTable, lookUpDims);
+                    }
+                    lookUpDims.add(col);
+                }
+            }
+        }
+
+        // build dictionaries for lookup table columns
+        for (Map.Entry<String, List<TblColRef>> lookUpEntry : lookUpTableColumnsMap.entrySet()) {
+            logger.info("Batch building dictionaries for lookup table:" + lookUpEntry.getKey());
+            cubeMgr.buildDictionaryList(cubeSeg, lookUpEntry.getValue(), lookUpTableMap.get(lookUpEntry.getKey()));
         }
 
         // snapshot
@@ -97,22 +130,5 @@ public class DictionaryGeneratorCLI {
             JoinDesc join = cubeSeg.getModel().getJoinsTree().getJoinByPKSide(lookup);
             cubeMgr.getLookupTable(cubeSeg, join);
         }
-    }
-
-    private static IReadableTable decideInputTable(DataModelDesc model, TblColRef col, DistinctColumnValuesProvider factTableValueProvider) {
-        KylinConfig config = model.getConfig();
-        DictionaryManager dictMgr = DictionaryManager.getInstance(config);
-        TblColRef srcCol = dictMgr.decideSourceData(model, col);
-        String srcTable = srcCol.getTable();
-
-        IReadableTable inpTable;
-        if (model.isFactTable(srcTable)) {
-            inpTable = factTableValueProvider.getDistinctValuesFor(srcCol);
-        } else {
-            MetadataManager metadataManager = MetadataManager.getInstance(config);
-            TableDesc tableDesc = new TableDesc(metadataManager.getTableDesc(srcTable));
-            inpTable = SourceFactory.createReadableTable(tableDesc);
-        }
-        return inpTable;
     }
 }
