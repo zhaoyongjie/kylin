@@ -155,7 +155,7 @@ window.onload = function () {
       if (loaded === files.length) {
         // Declare error if we are missing a name.
         if (angular.isUndefined(Config.name)) {
-          console.error('Config.name is undefined, please update this property.');
+          console.error(__('Config.name is undefined, please update this property.'));
         }
         // Bootstrap the application.
         angular.bootstrap(document, [Config.name]);
